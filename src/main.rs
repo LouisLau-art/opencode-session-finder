@@ -209,6 +209,22 @@ fn parse_since(since_str: &str) -> Option<i64> {
     Some(now - delta_ms)
 }
 
+/// A mis-typed `--since` (e.g. `--since=3day`) must not be mistaken for "no
+/// filter": silently searching everything looks like a working query that
+/// returned junk. Fail loudly instead.
+fn parse_since_or_die(raw: Option<&str>) -> Option<i64> {
+    match raw {
+        None => None,
+        Some(s) => match parse_since(s) {
+            Some(ts) => Some(ts),
+            None => {
+                eprintln!("无法解析 --since {:?}：用 12h / 7d / 2w / 1m 这种写法", s);
+                std::process::exit(2);
+            }
+        },
+    }
+}
+
 fn short_dir(dir: &str) -> String {
     if let Some(h) = home_dir() {
         let h_str = h.to_string_lossy();
@@ -493,10 +509,8 @@ fn cmd_list(args: ListArgs) {
         });
     }
 
-    if let Some(ref sincestr) = args.since {
-        if let Some(cutoff) = parse_since(sincestr) {
-            all_sess.retain(|s| s.time_created >= cutoff);
-        }
+    if let Some(cutoff) = parse_since_or_die(args.since.as_deref()) {
+        all_sess.retain(|s| s.time_created >= cutoff);
     }
 
     let results: Vec<SessionItem> = all_sess.into_iter().take(args.limit).collect();
@@ -552,7 +566,7 @@ fn cmd_find(args: FindArgs) {
     let sess_map: HashMap<String, SessionItem> =
         all_sess.iter().map(|s| (s.id.clone(), s.clone())).collect();
 
-    let cutoff_opt = args.since.as_deref().and_then(parse_since);
+    let cutoff_opt = parse_since_or_die(args.since.as_deref());
     let kws_lower: Vec<String> = args.keywords.iter().map(|k| k.to_lowercase()).collect();
 
     struct Agg {
@@ -920,6 +934,14 @@ fn cmd_open(args: OpenArgs) {
 }
 
 fn main() {
+    // `ocs find ... | head` closes stdout early. Rust's default is to panic on
+    // the resulting EPIPE, which dumps a backtrace instead of behaving like a
+    // normal Unix filter, so restore the default SIGPIPE disposition.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let cli = Cli::parse();
 
     match cli.command {

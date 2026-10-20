@@ -325,10 +325,11 @@ dependencies = [
 
 [[package]]
 name = "ocs"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "clap",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",
