@@ -34,9 +34,11 @@ OpenCode 按**启动目录**把会话归属到不同的 project，`opencode sess
 直接下静态二进制（musl static-pie，无运行时依赖）：
 
 ```sh
-curl -fsSL https://github.com/LouisLau-art/opencode-session-finder/releases/latest/download/ocs-0.2.2-linux-x86_64.tar.gz | tar xz
+curl -fsSL https://github.com/LouisLau-art/opencode-session-finder/releases/latest/download/ocs-linux-x86_64.tar.gz | tar xz
 install -m755 ocs /usr/local/bin/ocs
 ```
+
+> 资产名不含版本号，所以这个 URL 永远不会因为发新版而失效——`latest` 永远指向最新的包。实际版本跑 `ocs --version` 看。
 
 或者从源码编译：
 
@@ -101,12 +103,11 @@ ocs open <同一个定位方式>
 
 光有 `ocs` 命令还不够——你记住的关键词，往往和当初会话里实际写的不是同一个词（想的是「局限」，写的是「限制」）。`find-session` skill 把「换词再搜」「按时间兜底」「候选多个要问用户」这些步骤写死，让 agent 在 TUI 里直接听懂「找一下之前那个 session」。
 
-安装：
+它就在本仓库的 `skills/find-session/`，并且**已经打进 release 的 tarball**——上面那条安装命令解开后目录里就有它：
 
 ```sh
 mkdir -p ~/.agents/skills/find-session
-curl -fsSL https://raw.githubusercontent.com/LouisLau-art/opencode-session-finder/main/skills/find-session/SKILL.md \
-  -o ~/.agents/skills/find-session/SKILL.md
+cp skills/find-session/SKILL.md ~/.agents/skills/find-session/
 ```
 
 之后在 OpenCode 里直接说「找一下之前聊 X 的那个会话」即可，agent 会自己调 `ocs`。

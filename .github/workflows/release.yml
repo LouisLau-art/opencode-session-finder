@@ -45,10 +45,14 @@ jobs:
           else
             VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')-dev"
           fi
-          NAME="ocs-${VERSION}-linux-x86_64"
-          mkdir -p dist
+          NAME="ocs-linux-x86_64"
+          mkdir -p dist/skills/find-session
           cp target/x86_64-unknown-linux-musl/release/ocs dist/ocs
-          tar -C dist -czf "dist/${NAME}.tar.gz" ocs
+          # Ship the skill inside the tarball too, so one download gives a
+          # complete install and the skill version is pinned to the release
+          # rather than to whatever the branch happens to contain.
+          cp skills/find-session/SKILL.md dist/skills/find-session/SKILL.md
+          tar -C dist -czf "dist/${NAME}.tar.gz" ocs skills
           (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
