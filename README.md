@@ -97,6 +97,20 @@ ocs open <同一个定位方式>
 
 只打印那条 `cd ... && opencode -s ...`，方便复制。
 
+## 配套 skill：find-session
+
+光有 `ocs` 命令还不够——你记住的关键词，往往和当初会话里实际写的不是同一个词（想的是「局限」，写的是「限制」）。`find-session` skill 把「换词再搜」「按时间兜底」「候选多个要问用户」这些步骤写死，让 agent 在 TUI 里直接听懂「找一下之前那个 session」。
+
+安装：
+
+```sh
+mkdir -p ~/.agents/skills/find-session
+curl -fsSL https://raw.githubusercontent.com/LouisLau-art/opencode-session-finder/main/skills/find-session/SKILL.md \
+  -o ~/.agents/skills/find-session/SKILL.md
+```
+
+之后在 OpenCode 里直接说「找一下之前聊 X 的那个会话」即可，agent 会自己调 `ocs`。
+
 ## 排序规则
 
 按命中总数排序是错的：一个把「妙搭」念了 444 次的会话，会永久压过另一个真正花十轮讨论局限在哪的会话。
