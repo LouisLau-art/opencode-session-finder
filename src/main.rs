@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 #[command(
     name = "ocs",
     author = "louis",
-    version = "0.2.0",
+    // Comes from Cargo.toml, otherwise `--version` silently drifts from the
+    // version the release was cut under.
+    version = env!("CARGO_PKG_VERSION"),
     about = "Blazing fast OpenCode session finder across projects and directories"
 )]
 struct Cli {
