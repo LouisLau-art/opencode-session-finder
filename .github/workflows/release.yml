@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Verify the binary is actually static
+        run: |
+          BIN=target/x86_64-unknown-linux-musl/release/ocs
+          file "$BIN"
+          # A glibc build here would still "work" on this runner and break on
+          # someone else's older distro, so fail loudly instead of shipping it.
+          file "$BIN" | grep -q 'static' || { echo "::error::not statically linked"; exit 1; }
+          "$BIN" --version
+
+      - name: Package
+        id: pack
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')-dev"
+          fi
+          NAME="ocs-${VERSION}-linux-x86_64"
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/ocs dist/ocs
+          tar -C dist -czf "dist/${NAME}.tar.gz" ocs
+          (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack.outputs.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+          generate_release_notes: true

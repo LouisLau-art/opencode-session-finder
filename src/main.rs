@@ -146,17 +146,18 @@ fn candidate_db_paths() -> Vec<PathBuf> {
     let paths = vec![
         home_dir().map(|h| h.join(".local/share/opencode/opencode.db")),
         Some(PathBuf::from("/root/.local/share/opencode/opencode.db")),
-        Some(PathBuf::from("/home/louis/.local/share/opencode/opencode.db")),
+        Some(PathBuf::from(
+            "/home/louis/.local/share/opencode/opencode.db",
+        )),
     ];
 
-    for p_opt in paths {
-        if let Some(p) = p_opt {
-            if p.exists() {
-                if let Ok(canon) = fs::canonicalize(&p) {
-                    if seen.insert(canon.clone()) {
-                        out.push(p);
-                    }
-                }
+    for p in paths.into_iter().flatten() {
+        if !p.exists() {
+            continue;
+        }
+        if let Ok(canon) = fs::canonicalize(&p) {
+            if seen.insert(canon) {
+                out.push(p);
             }
         }
     }
@@ -188,6 +189,11 @@ fn parse_since(since_str: &str) -> Option<i64> {
     }
     let (num_part, unit) = s.split_at(s.len() - 1);
     let n: i64 = num_part.trim().parse().ok()?;
+    // A negative offset would put the cutoff in the future and silently filter
+    // out every session, which looks like "no results" rather than a typo.
+    if n <= 0 {
+        return None;
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -320,7 +326,7 @@ fn load_all_sessions(paths: &[PathBuf]) -> Vec<SessionItem> {
     }
 
     let mut list: Vec<SessionItem> = map.into_values().collect();
-    list.sort_by(|a, b| b.time_created.cmp(&a.time_created));
+    list.sort_by_key(|s| std::cmp::Reverse(s.time_created));
     list
 }
 
@@ -379,7 +385,7 @@ fn make_snippet(text: &str, keyword: &str, width: usize) -> String {
 
     if let Some(idx) = floor_search(&lower_text, &lower_kw, text) {
         let half = width / 2;
-        let raw_start = if idx > half { idx - half } else { 0 };
+        let raw_start = idx.saturating_sub(half);
         let start = floor_char_boundary(text, raw_start);
         let raw_end = std::cmp::min(text.len(), idx + keyword.len() + half);
         let end = ceil_char_boundary(text, raw_end);
@@ -506,10 +512,7 @@ fn cmd_list(args: ListArgs) {
         return;
     }
 
-    println!(
-        "{:<34} {:<16} {:<12} {}",
-        "SESSION ID", "CREATED", "DIR", "TITLE"
-    );
+    println!("{:<34} {:<16} {:<12} TITLE", "SESSION ID", "CREATED", "DIR");
     println!("{}", "-".repeat(95));
     for s in &results {
         let title_clean = if s.title.is_empty() {
@@ -575,11 +578,7 @@ fn cmd_find(args: FindArgs) {
         let mut stores: Vec<&str> = Vec::new();
         for table in ["session_message", "part"] {
             let n: i64 = conn
-                .query_row(
-                    &format!("SELECT COUNT(*) FROM {}", table),
-                    [],
-                    |r| r.get(0),
-                )
+                .query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0))
                 .unwrap_or(-1);
             if n > 0 {
                 stores.push(table);
@@ -839,7 +838,8 @@ fn load_session_turns(paths: &[PathBuf], session_id: &str) -> Vec<TranscriptTurn
                 .unwrap_or(false);
 
             if has_part {
-                let sql = "SELECT p.time_created, coalesce(json_extract(m.data,'$.role'),'user'), p.data
+                let sql =
+                    "SELECT p.time_created, coalesce(json_extract(m.data,'$.role'),'user'), p.data
                            FROM part p LEFT JOIN message m ON m.id = p.message_id
                            WHERE p.session_id = ? ORDER BY p.time_created ASC";
                 let mut stmt = conn.prepare(sql).ok();
@@ -936,5 +936,125 @@ fn main() {
                 json: false,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sess(id: &str, title: &str) -> SessionItem {
+        SessionItem {
+            id: id.to_string(),
+            parent_id: String::new(),
+            title: title.to_string(),
+            directory: "/home/louis".to_string(),
+            time_created: 1_700_000_000_000,
+            time_updated: 1_700_000_000_000,
+            time_archived: 0,
+            resume_cmd: format!("opencode -s {}", id),
+        }
+    }
+
+    fn now_ms() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+    }
+
+    #[test]
+    fn parse_since_understands_units() {
+        let day = 86_400_000i64;
+        for (input, expect_days) in [("7d", 7i64), ("2w", 14), ("1m", 30), ("24h", 1)] {
+            let cutoff = parse_since(input).expect(input);
+            let age_days = (now_ms() - cutoff) / day;
+            assert_eq!(age_days, expect_days, "input={input}");
+        }
+    }
+
+    #[test]
+    fn parse_since_rejects_junk() {
+        for bad in ["", "  ", "abc", "7", "7x", "d", "-3d"] {
+            assert!(parse_since(bad).is_none(), "should reject {bad:?}");
+        }
+    }
+
+    #[test]
+    fn parse_since_accepts_uppercase_and_padding() {
+        assert!(parse_since(" 3D ").is_some());
+        assert!(parse_since("5W").is_some());
+    }
+
+    #[test]
+    fn snippet_keeps_multibyte_boundaries() {
+        // Every char here is 3 bytes; a naive byte slice would panic.
+        let text = "前面这段是为了把关键词推到很后面去的填充文字，妙搭的限制在这里说明。尾巴";
+        let snip = make_snippet(text, "限制", 40);
+        assert!(snip.contains("限制"), "got {snip}");
+        assert!(snip.starts_with('…'), "expected leading ellipsis: {snip}");
+    }
+
+    #[test]
+    fn snippet_without_keyword_takes_head() {
+        let snip = make_snippet("no match anywhere in this sentence", "zzz", 10);
+        assert!(snip.starts_with("no match"));
+        assert!(snip.ends_with('…'));
+    }
+
+    #[test]
+    fn snippet_flattens_newlines() {
+        let snip = make_snippet("line one\nline two\r\nline three", "two", 30);
+        assert!(!snip.contains('\n') && !snip.contains('\r'), "got {snip:?}");
+    }
+
+    #[test]
+    fn extract_reads_content_parts() {
+        let (role, text) = extract_text_and_role(
+            "user",
+            r#"{"role":"assistant","content":[{"type":"text","text":"第一段"},{"type":"tool_use","name":"bash"},{"type":"text","text":"第二段"}]}"#,
+        );
+        assert_eq!(role, "assistant");
+        assert_eq!(text, "第一段\n第二段");
+    }
+
+    #[test]
+    fn extract_reads_plain_text_field() {
+        let (role, text) = extract_text_and_role("user", r#"{"text":"裸文本"}"#);
+        assert_eq!(role, "user");
+        assert_eq!(text, "裸文本");
+    }
+
+    #[test]
+    fn extract_falls_back_on_bad_json() {
+        let (role, text) = extract_text_and_role("assistant", "{not json");
+        assert_eq!(role, "assistant");
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn resolve_matches_id_forms() {
+        let items = vec![sess("ses_aa11", "找妙搭"), sess("ses_bb22", "别的会话")];
+        assert_eq!(resolve_session(&items, "ses_aa11").unwrap().id, "ses_aa11");
+        assert_eq!(resolve_session(&items, "ses_aa").unwrap().id, "ses_aa11");
+        // The middle of an id, as people paste it out of a log.
+        assert_eq!(resolve_session(&items, "aa11").unwrap().id, "ses_aa11");
+        assert_eq!(resolve_session(&items, "找妙搭").unwrap().id, "ses_aa11");
+    }
+
+    #[test]
+    fn resolve_refuses_ambiguity() {
+        let items = vec![sess("ses_aa11", "同名"), sess("ses_bb22", "同名")];
+        assert!(resolve_session(&items, "同名").is_none());
+        assert!(resolve_session(&items, "不存在").is_none());
+    }
+
+    #[test]
+    fn char_boundary_helpers_clamp() {
+        let s = "妙搭";
+        assert_eq!(floor_char_boundary(s, 4), 3);
+        assert_eq!(ceil_char_boundary(s, 4), 6);
+        assert_eq!(floor_char_boundary(s, 99), 6);
+        assert_eq!(ceil_char_boundary(s, 99), 6);
     }
 }
