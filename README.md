@@ -126,12 +126,16 @@ cp skills/find-session/SKILL.md ~/.agents/skills/find-session/
 
 ## 性能
 
-3.3 GB 数据库、两个关键词、全表扫描：
+3.3 GB 数据库、两个关键词、全表扫描（本机实测，取 3 次中位数）：
 
-| | 耗时 |
-|---|---|
-| `ocs find 妙搭 限制` | ~1.0 s |
-| `ocs list -n 40` | ~0.15 s |
+| | 本机 glibc 构建 | release 静态构建 |
+|---|---|---|
+| `ocs find 妙搭 限制` | ~1.03 s | ~1.50 s |
+| `ocs list -n 40` | ~5 ms | ~5 ms |
+
+`list` 只读会话元数据表，不碰消息正文，所以是毫秒级；`find` 才是全库扫正文。
+
+静态构建比 glibc 慢 40% 左右 —— musl 的 `memcpy` 比 glibc 慢，而 `LIKE` 全扫是内存拷贝密集型。本机自己用建议装 glibc 版（`cargo build --release` 出来的那个），发给别人用才用静态版。
 
 单次 `LIKE` 全扫是刻意选的：建倒排索引意味着要跟着 OpenCode 的 schema 更新，并且在几 GB 的库上多维护一份数据。1 秒对交互式使用足够。
 
