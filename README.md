@@ -31,6 +31,15 @@ OpenCode 按**启动目录**把会话归属到不同的 project，`opencode sess
 
 ## 安装
 
+直接下静态二进制（musl static-pie，无运行时依赖）：
+
+```sh
+curl -fsSL https://github.com/LouisLau-art/opencode-session-finder/releases/latest/download/ocs-0.2.2-linux-x86_64.tar.gz | tar xz
+install -m755 ocs /usr/local/bin/ocs
+```
+
+或者从源码编译：
+
 ```sh
 git clone https://github.com/LouisLau-art/opencode-session-finder.git
 cd opencode-session-finder
